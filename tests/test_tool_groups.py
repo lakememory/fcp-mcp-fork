@@ -147,8 +147,9 @@ class TestGroupCoverage:
         14 -> 15 in v0.26.0: `view` has to be its own tool because MCP Apps
         binds the UI to a TOOL's `_meta`, and `gen` is the money-gated verb
         a model must choose on purpose rather than a flavour of `generate`.
+        Raised 15 -> 16 in the trace fork: `trace` (docs/TRACE.md, FORK.md).
         """
-        assert len(server.TOOL_GROUPS) <= 15
+        assert len(server.TOOL_GROUPS) <= 16
         assert len(server.TOOL_HANDLERS) >= 62
 
 

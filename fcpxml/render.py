@@ -24,6 +24,7 @@ from fcpxml.filtergraph import (
     graph_to_args,
     placement,
 )
+from fcpxml.trace import traced_run
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def probe_duration(path: str) -> Optional[Fraction]:
     if shutil.which("ffprobe") is None:
         return None
     try:
-        result = subprocess.run(
+        result = traced_run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
             capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS,
@@ -98,7 +99,7 @@ def probe_source(path: str) -> Optional[SourceInfo]:
     if shutil.which("ffprobe") is None or not Path(path).is_file():
         return None
     try:
-        result = subprocess.run(
+        result = traced_run(
             ["ffprobe", "-v", "error", "-show_entries",
              "format=format_name,duration:stream=codec_type,width,height,nb_frames",
              "-of", "json", str(path)],
@@ -135,7 +136,7 @@ def probe_audio_duration(path: str) -> Optional[Fraction]:
     if shutil.which("ffprobe") is None:
         return None
     try:
-        result = subprocess.run(
+        result = traced_run(
             ["ffprobe", "-v", "error", "-select_streams", "a:0", "-show_entries",
              "stream=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
             capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS,
@@ -169,7 +170,7 @@ def _probes(timeline: Any) -> dict:
 def _grey(source: str, at: Fraction, vf: str) -> Optional[bytes]:
     """A tiny grey thumbnail of one frame, as raw bytes (None if unreadable)."""
     try:
-        result = subprocess.run(
+        result = traced_run(
             ["ffmpeg", "-hide_banner", "-nostdin", "-v", "error",
              "-ss", f"{float(at):.6f}", "-i", str(source), "-frames:v", "1",
              "-vf", f"{vf},scale={_THUMB}:{_THUMB},format=gray",
@@ -304,7 +305,7 @@ def render_proxy(
         except ValueError as exc:
             return _failure(graph, skipped, str(exc))
         try:
-            result = subprocess.run(
+            result = traced_run(
                 args, capture_output=True, text=True, timeout=RENDER_TIMEOUT_SECONDS
             )
         except (OSError, subprocess.TimeoutExpired):
@@ -398,7 +399,7 @@ def render_frame(
         args += ["-vf", frame_scale_filter(max_short_side)]
     args += ["-frames:v", "1", str(out_path)]
     try:
-        result = subprocess.run(
+        result = traced_run(
             args, capture_output=True, timeout=PROBE_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):

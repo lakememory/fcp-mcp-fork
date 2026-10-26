@@ -32,3 +32,9 @@ requires_index = pytest.mark.skipif(index_is_off(), reason="FCP_MCP_INDEX=off pa
 def _isolated_journal(tmp_path, monkeypatch):
     """The journal is a ledger under ``~/.fcp-mcp/``; tests never touch the real one."""
     monkeypatch.setenv("FCP_MCP_JOURNAL", str(tmp_path / "journal"))
+
+
+@pytest.fixture(autouse=True)
+def _isolated_traces(tmp_path, monkeypatch):
+    """Run traces go under ``~/.fcp-mcp/traces/``; tests never write the real ones (fork)."""
+    monkeypatch.setenv("FCP_MCP_TRACE_DIR", str(tmp_path / "traces"))
