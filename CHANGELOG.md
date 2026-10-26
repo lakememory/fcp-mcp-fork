@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased (fork)
+
+Fork of upstream 0.27.2 (`6733d29`), not an upstream release; see `FORK.md`.
+
+### Added
+- **Run tracing.** Every tool call is recorded as JSON lines under
+  `~/.fcp-mcp/traces/<date>/<run_id>.jsonl`, in the Logic Pro MCP's schema 1:
+  reads, refusals and crashes included, with timing, an outcome, input and
+  output hashes, and the ffmpeg, ffprobe, osascript and xmllint runs and
+  `fcpxml.*` warnings of each call. Local only. `FCP_MCP_TRACE=off` disables
+  it; `FCP_MCP_TRACE_DIR` moves it. See `docs/TRACE.md`.
+- **`trace` group:** `begin_run`, `log_intent`, `end_run`, `status`, `show`.
+  Never required.
+- **`scripts/fcp_trace.py`:** `list`, `show` and `export --md`, standard
+  library only.
+
+### Changed
+- While tracing is on, an unexpected error's reply ends with
+  ` (trace <run_id>:<seq>)`, and the server sends a one-line MCP instruction
+  about tracing (it sent none before). Every other reply is byte-identical.
+
 ## [Unreleased]
 
 ## [0.30.0] - 2026-11-02
