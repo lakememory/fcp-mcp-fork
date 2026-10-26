@@ -42,6 +42,7 @@ from xml.etree import ElementTree as ET
 
 from .models import MarkerType
 from .rational import format_seconds, parse_seconds
+from .trace import traced_run
 from .writer import (
     SPINE_ELEMENT_TAGS,
     FCPXMLModifier,
@@ -507,7 +508,7 @@ def probe_media(path: str) -> Optional[dict]:
     if shutil.which("ffprobe") is None or not Path(path).is_file():
         return None
     try:
-        proc = subprocess.run(
+        proc = traced_run(
             ["ffprobe", "-v", "error", "-print_format", "json", "-show_streams",
              "-show_format", str(path)],
             capture_output=True, text=True, timeout=60,

@@ -34,6 +34,7 @@ from fcpxml import diversity as _diversity
 from fcpxml import journal as _journal
 from fcpxml import live
 from fcpxml import timeline_app as _timeline_app
+from fcpxml import trace as _trace
 from fcpxml.diff import compare_timelines, format_diff
 from fcpxml.mcp_compat import (
     APPS_EXTENSION_ID,
@@ -66,7 +67,10 @@ from fcpxml.writer import FCPXMLModifier
 
 __version__ = "0.27.2"
 
-server = Server("fcp-mcp-server", version=__version__)
+server = Server(
+    "fcp-mcp-server", version=__version__,
+    instructions=_trace.INSTRUCTIONS if _trace.enabled() else None,
+)
 
 
 def _parse_allowed_roots(
@@ -4033,21 +4037,25 @@ def _group_action_error(group: str, action: str | None) -> list[TextContent]:
 async def handle_group(group: str, arguments: dict) -> list[TextContent]:
     """Dispatch a grouped tool call into the flat TOOL_HANDLERS registry."""
     if group not in TOOL_GROUPS:
+        _trace.outcome("unknown_action")
         return _group_action_error(group, None)
 
     action = arguments.get("action")
     if not action or action not in TOOL_GROUPS[group]["actions"]:
+        _trace.outcome("unknown_action")
         return _group_action_error(group, action)
 
     handler = TOOL_HANDLERS.get(action)
     if handler is None:
         # Only reachable if TOOL_GROUPS names an action with no handler, which
         # test_every_group_action_resolves_to_a_real_handler exists to prevent.
+        _trace.outcome("unknown_action")
         return _text_result(f"No handler registered for action: {action}")
 
     if "args" in arguments:
         call_args = arguments.get("args") or {}
         if not isinstance(call_args, dict):
+            _trace.outcome("validation_error")
             return _text_result(
                 f"Invalid 'args' for '{group}.{action}': expected an object, "
                 f"got {type(call_args).__name__}."
@@ -4262,19 +4270,31 @@ async def _journaled(tool: str, action: str, arguments: dict, handler) -> Sequen
     against the input. Handlers change nothing for this: the seam is
     _validate_output_path, which every write already passes through.
     """
-    refusal = _project_guard(arguments) or _review_gate(action, arguments)
+    _trace.note(
+        gated=action in GATED_ACTIONS, autopushed=False,
+        confirm_unreviewed=arguments.get("confirm_unreviewed") is True,
+    )
+    refusal = _project_guard(arguments)
     if refusal is not None:
+        _trace.outcome("refused_guard")
+        return refusal
+    refusal = _review_gate(action, arguments)
+    if refusal is not None:
+        _trace.outcome("refused_gate")
         return refusal
     filepath = arguments.get("filepath")
     input_path = filepath if isinstance(filepath, str) else None
     token = _journal.begin(tool, action, arguments, input_path)
+    _trace.note_input()
     try:
         result = await handler(arguments)
     finally:
         written = _journal.finish(token)
+        _trace.note_outputs(written)
     # Every write answers with the hash of what it wrote, so the model can
     # pass it back as expected_sha256 on the next call without a round trip.
     hashes = _written_hashes(written)
+    _trace.note_outputs(written, hashes)
     if hashes:
         result = _text_result(_with_hashes(result[0].text, hashes))
     # Autopush lives HERE, on the same seam, so every write handler gets it
@@ -4284,6 +4304,7 @@ async def _journaled(tool: str, action: str, arguments: dict, handler) -> Sequen
         pushed = "".join(
             _maybe_autopush(p) for p in written if p.endswith((".fcpxml", ".fcpxmld"))
         )
+        _trace.note(autopushed=bool(pushed))
         if pushed:
             result = _text_result(result[0].text + pushed)
     if action in GATED_ACTIONS and arguments.get("confirm_unreviewed") is True:
@@ -4291,28 +4312,49 @@ async def _journaled(tool: str, action: str, arguments: dict, handler) -> Sequen
     return result
 
 
+# Run tracing (fcpxml/trace.py, docs/TRACE.md) sees the live registry, so a
+# flat legacy name is recorded under the group that owns it.
+_trace.bind(__version__, TOOL_GROUPS)
+
+
 async def call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextContent]:
+    """Dispatch one call inside a trace span. The dispatch itself is _call_tool."""
+    span = _trace.start_span(name, arguments)
+    try:
+        return _trace.end_span(span, await _call_tool(name, arguments))
+    except BaseException as e:  # cancellation: _call_tool catches every Exception
+        _trace.end_span(span, None, e)
+        raise
+
+
+async def _call_tool(name: str, arguments: dict[str, Any]) -> Sequence[TextContent]:
     handler = TOOL_HANDLERS.get(name)
     if not handler and name not in TOOL_GROUPS:
+        _trace.outcome("unknown_action")
         return _text_result(f"Unknown tool: {name}")
     try:
         if name in TOOL_GROUPS:
             return await handle_group(name, arguments)
         return await _journaled(name, name, arguments, handler)
-    except _NoTimelineError:
+    except _NoTimelineError as e:
+        _trace.outcome("no_timeline", e)
         return _no_timeline()
     except FileNotFoundError as e:
+        _trace.outcome("not_found", e)
         return _text_result(f"File not found: {e}")
     except ValueError as e:
+        _trace.outcome("validation_error", e)
         return _text_result(f"Validation error: {e}")
     except KeyError as e:
+        _trace.outcome("missing_argument", e)
         action = arguments.get("action") if name in TOOL_GROUPS else name
         missing = str(e).strip("'\"")
         help_text = _action_param_help(action)
         msg = f"Missing required argument: {missing}"
         return _text_result(f"{msg}\n\n{help_text}" if help_text else msg)
     except Exception as e:
-        return _text_result(f"Error: {type(e).__name__}")
+        _trace.outcome("error", e)
+        return _text_result(f"Error: {type(e).__name__}{_trace.ref()}")
 
 
 # ============================================================================

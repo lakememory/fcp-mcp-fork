@@ -98,6 +98,7 @@ def _register_all() -> None:
     from tools import organize as _organize
     from tools import preview as _preview
     from tools import scenes as _scenes
+    from tools import trace as _trace
     from tools import view as _view
     from tools import watch as _watch
 
@@ -109,6 +110,7 @@ def _register_all() -> None:
     register_group("find", _find.DESCRIPTION, _find.ACTIONS)
     register_group("view", _view.DESCRIPTION, _view.ACTIONS, meta=_view.UI_META)
     register_group("gen", _gen.DESCRIPTION, _gen.ACTIONS)
+    register_group("trace", _trace.DESCRIPTION, _trace.ACTIONS)
 
 
 _register_all()

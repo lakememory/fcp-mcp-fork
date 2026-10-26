@@ -18,9 +18,10 @@ at runtime rather than redistributed with this project).
 
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Optional, Tuple
+
+from fcpxml.trace import traced_run
 
 # Where FCP 10.6+ keeps its DTDs (verified against FCP 12.2)
 _INTERCHANGE_RESOURCES = Path(
@@ -101,7 +102,7 @@ def validate_against_dtd(
     # xmllint treats the --dtdvalid argument as a URI: raw paths containing
     # spaces (e.g. ".../Final Cut Pro.app/...") fail entity resolution with
     # "xmlSAX2ResolveEntity".  Path.as_uri() percent-encodes them.
-    proc = subprocess.run(
+    proc = traced_run(
         ["xmllint", "--noout", "--dtdvalid", dtd.resolve().as_uri(), str(path)],
         capture_output=True,
         text=True,

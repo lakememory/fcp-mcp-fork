@@ -15,6 +15,8 @@ import subprocess
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from fcpxml.trace import traced_run
+
 logger = logging.getLogger(__name__)
 
 # Hard ceiling on a single ffmpeg analysis pass. Decoding audio-only is far
@@ -265,7 +267,7 @@ def detect_silence(
         return None
 
     try:
-        result = subprocess.run(
+        result = traced_run(
             [
                 "ffmpeg", "-hide_banner", "-nostdin",
                 "-i", str(file_path),

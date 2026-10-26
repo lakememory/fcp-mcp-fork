@@ -60,6 +60,7 @@ from .rational import (
     tick_timebase,
     to_frames,
 )
+from .trace import traced_run
 
 # Maximum lengths for XML attribute values to prevent memory abuse
 _MAX_MARKER_NAME_LENGTH = 1024
@@ -388,7 +389,7 @@ def _probe_audio_info(src: str) -> Optional[Dict[str, Any]]:
     if not path.is_file():
         return None
     try:
-        result = subprocess.run(
+        result = traced_run(
             ['ffprobe', '-v', 'error', '-select_streams', 'a:0',
              '-show_entries', 'stream=sample_rate,channels,duration',
              '-show_entries', 'format=duration',
@@ -491,7 +492,7 @@ def _ensure_video_asset(
         str(output_path),
     ]
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=120)
+        traced_run(cmd, check=True, capture_output=True, timeout=120)
     except FileNotFoundError:
         raise FileNotFoundError(
             "ffmpeg not found. Install ffmpeg to use still image auto-conversion: "

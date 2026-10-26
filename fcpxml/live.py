@@ -56,6 +56,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
+from fcpxml.trace import traced_run
+
 _OSASCRIPT_TIMEOUT_SECONDS = 120  # FCP cold-launch + import can be slow
 _FCP_BUNDLE_ID = "com.apple.FinalCut"
 
@@ -71,7 +73,7 @@ def _applescript_quote(value: str) -> str:
 
 
 def _run_osascript(script: str) -> subprocess.CompletedProcess:
-    return subprocess.run(
+    return traced_run(
         ["osascript", "-e", script],
         capture_output=True,
         text=True,

@@ -17,6 +17,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Optional
 
+from fcpxml.trace import traced_run
+
 logger = logging.getLogger(__name__)
 
 VISUAL_TIMEOUT_SECONDS = 180
@@ -77,7 +79,7 @@ def visual_check(
     # itself. Retry without the waveform instead.
     for graph in (with_waveform, video_only):
         try:
-            result = subprocess.run(
+            result = traced_run(
                 ["ffmpeg", "-hide_banner", "-nostdin", "-y",
                  "-ss", str(float(start)), "-t", str(float(duration)),
                  "-i", str(source),

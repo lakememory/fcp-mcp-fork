@@ -21,6 +21,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from fcpxml.trace import traced_run
+
 logger = logging.getLogger(__name__)
 
 SCENE_TIMEOUT_SECONDS = 300
@@ -84,7 +86,7 @@ def _ffmpeg_backend(path: str, threshold: float, min_scene_len: float) -> Option
     if shutil.which("ffmpeg") is None:
         return None
     try:
-        result = subprocess.run(
+        result = traced_run(
             [
                 "ffmpeg", "-hide_banner", "-nostdin", "-i", path,
                 "-an", "-vf", f"select='gt(scene,{threshold})',showinfo",

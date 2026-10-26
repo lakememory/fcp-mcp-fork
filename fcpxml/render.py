@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fcpxml.filtergraph import compile_timeline, graph_to_args
+from fcpxml.trace import traced_run
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ def probe_duration(path: str) -> Optional[Fraction]:
     if shutil.which("ffprobe") is None:
         return None
     try:
-        result = subprocess.run(
+        result = traced_run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
             capture_output=True, text=True, timeout=PROBE_TIMEOUT_SECONDS,
@@ -96,7 +97,7 @@ def render_proxy(
         return _failure(graph, skipped, str(exc))
 
     try:
-        result = subprocess.run(
+        result = traced_run(
             args, capture_output=True, text=True, timeout=RENDER_TIMEOUT_SECONDS
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -163,7 +164,7 @@ def render_frame(
         args += ["-vf", frame_scale_filter(max_short_side)]
     args += ["-frames:v", "1", str(out_path)]
     try:
-        result = subprocess.run(
+        result = traced_run(
             args, capture_output=True, timeout=PROBE_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
