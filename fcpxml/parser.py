@@ -22,7 +22,7 @@ from .models import (
     Transform,
     Transition,
 )
-from .rational import parse_seconds, rational_fps
+from .rational import frame_duration_seconds, parse_seconds, rational_fps
 from .safe_xml import safe_fromstring, safe_parse
 
 # Maximum FCPXML file size (50 MB) — prevents memory exhaustion from crafted files
@@ -40,6 +40,9 @@ _CONNECTED_CLIP_TAGS = (
 
 # Tags whose media path comes from a <media> resource rather than an <asset>.
 _MEDIA_REF_TAGS = ('mc-clip', 'ref-clip')
+
+# Elements the primary storyline carries as clips.
+_SPINE_CLIP_TAGS = ('asset-clip', 'clip', 'video', 'mc-clip', 'sync-clip', 'ref-clip')
 
 # Spine elements that occupy primary-storyline time without being a clip the
 # timeline model carries. Each still pushes every later element along by its
@@ -383,11 +386,15 @@ class FCPXMLParser:
         raw_cut = None
         for elem in spine:
             tag = elem.tag
-            if tag in ('asset-clip', 'clip', 'video', 'mc-clip', 'sync-clip', 'ref-clip'):
-                clip = self._parse_clip(elem, current_offset)
+            # An <audition> plays its first child, the active pick. It has no
+            # duration of its own, so reading it as time-only advanced the
+            # clock by nothing and dropped the picture that plays there.
+            played = self._audition_pick(elem) if tag == 'audition' else elem
+            if played is not None and played.tag in _SPINE_CLIP_TAGS:
+                clip = self._parse_clip(played, current_offset)
                 if clip:
                     timeline.clips.append(clip)
-                    self._parse_connected_clips(elem, clip, timeline)
+                    self._parse_connected_clips(played, clip, timeline)
                     current_offset += clip.duration.frames
             elif tag == 'gap':
                 gap_frames = self._tc(elem, 'duration').frames
@@ -403,8 +410,9 @@ class FCPXMLParser:
                 current_offset += self._tc(elem, 'duration').frames
             else:
                 continue
+            timed = played if played is not None else elem
             try:
-                raw_cut = parse_seconds(elem.get('offset')) + parse_seconds(elem.get('duration'))
+                raw_cut = parse_seconds(elem.get('offset')) + parse_seconds(timed.get('duration'))
             except ValueError:
                 raw_cut = None
 
@@ -429,6 +437,7 @@ class FCPXMLParser:
             transform=transform,
             effects=effects,
             volume_db=self._volume_of(elem),
+            enabled=elem.get('enabled', '1') != '0',
         )
 
         clip.markers.extend(self._collect_markers(elem, offset, source_start.frames))
@@ -559,40 +568,116 @@ class FCPXMLParser:
 
         return result
 
+    @staticmethod
+    def _audition_pick(audition: ET.Element) -> Optional[ET.Element]:
+        """The clip an <audition> plays: its first child (the active pick)."""
+        for child in audition:
+            return child
+        return None
+
     def _iter_connected_elements(self, parent_elem: ET.Element, parent_name: str,
-                                 parent_offset: int, parent_start: int):
+                                 parent_offset: int, parent_start: int,
+                                 enabled: bool = True):
         """Yield parsed :class:`ConnectedClip` objects hanging off ``parent_elem``.
 
         Shared iteration logic for both spine-clip and gap-attached connected
-        clips — walks direct children with a ``lane`` attribute and
-        ``<storyline>`` wrappers, without prescribing where the results get
-        stored. ``parent_offset`` is where the parent sits on the timeline
+        clips. ``parent_offset`` is where the parent sits on the timeline
         (frames) and ``parent_start`` is where its local clock begins; a
         child's ``offset`` is written in that local clock, so its timeline
         position is ``parent_offset + (offset - parent_start)``.
+
+        Three shapes hang off a parent: a clip with a ``lane``; an
+        ``<audition lane>`` (its first child plays); and a connected
+        storyline, which Final Cut writes as ``<spine lane="N">`` (the DTD has
+        no ``<storyline>`` element; that spelling is still read for documents
+        written by older versions of this server). ``enabled`` is the
+        parent's state: a disabled parent disables everything under it.
         """
         for child in parent_elem:
             lane = child.get('lane')
-            if lane is not None and child.tag in _CONNECTED_CLIP_TAGS:
+            on = enabled and child.get('enabled', '1') != '0'
+            if lane is not None and child.tag == 'spine':
+                yield from self._iter_storyline(
+                    child, int(lane), parent_name, parent_offset, parent_start, on)
+                continue
+            played = child
+            if lane is not None and child.tag == 'audition':
+                played = self._audition_pick(child)
+                on = on and played is not None and played.get('enabled', '1') != '0'
+            if lane is not None and played is not None and played.tag in _CONNECTED_CLIP_TAGS:
                 connected = self._parse_one_connected_clip(
-                    child, int(lane), parent_name, parent_offset, parent_start)
+                    played, int(lane), parent_name, parent_offset, parent_start,
+                    enabled=on, placed=child)
                 if connected:
                     yield connected
+                    yield from self._iter_connected_elements(
+                        played, connected.name, connected.timeline_start.frames,
+                        connected.start.frames, on)
             elif child.tag == 'storyline':
                 lane_val = int(child.get('lane', '1'))
                 for sub_elem in child:
                     if sub_elem.tag in _CONNECTED_CLIP_TAGS:
                         connected = self._parse_one_connected_clip(
-                            sub_elem, lane_val, parent_name, parent_offset, parent_start)
+                            sub_elem, lane_val, parent_name, parent_offset, parent_start,
+                            enabled=on and sub_elem.get('enabled', '1') != '0')
                         if connected:
                             yield connected
+
+    def _iter_storyline(self, storyline: ET.Element, lane: int, parent_name: str,
+                        parent_offset: int, parent_start: int, enabled: bool):
+        """Yield the clips of a connected storyline, ``<spine lane="N">``.
+
+        The storyline is anchored like any connected item, at
+        ``parent_offset + (offset - parent_start)``. Inside it the clock
+        starts at 0: its children's offsets count from the storyline's own
+        first frame, whatever the storyline's offset on its parent (a Final
+        Cut 12 export with a storyline anchored at 437/125s writes its first
+        child at 0s). ``<gap>`` children are spacers; clips connected to one
+        are still read. Every clip takes the storyline's lane and name.
+        """
+        name = storyline.get('name', '')
+        frame = frame_duration_seconds(self.frame_rate)
+        # Kept exact until the one conversion to frames below: sound is cut
+        # between frames, and flooring the storyline's offset and the clip's
+        # offset separately put a narration line up to two frames early.
+        try:
+            origin = (parent_offset - parent_start) * frame + parse_seconds(storyline.get('offset'))
+        except ValueError:
+            origin = (parent_offset - parent_start) * frame
+
+        def at(elem: ET.Element) -> int:
+            try:
+                return int((origin + parse_seconds(elem.get('offset'))) / frame)
+            except ValueError:
+                return int(origin / frame)
+
+        for child in storyline:
+            on = enabled and child.get('enabled', '1') != '0'
+            if child.tag == 'gap':
+                gap_at = at(child)
+                yield from self._iter_connected_elements(
+                    child, f"gap@{gap_at}", gap_at, self._tc(child, 'start').frames, on)
+                continue
+            played = self._audition_pick(child) if child.tag == 'audition' else child
+            if played is None or played.tag not in _CONNECTED_CLIP_TAGS:
+                continue
+            on = on and played.get('enabled', '1') != '0'
+            connected = self._parse_one_connected_clip(
+                played, lane, parent_name, at(child), 0,
+                enabled=on, storyline=name, placed=child, positioned=True)
+            if connected:
+                yield connected
+                yield from self._iter_connected_elements(
+                    played, connected.name, connected.timeline_start.frames,
+                    connected.start.frames, on)
 
     def _parse_connected_clips(self, parent_elem: ET.Element,
                                 parent_clip: Clip, timeline: Timeline):
         """Parse connected clips attached to a primary storyline clip."""
         for connected in self._iter_connected_elements(
                 parent_elem, parent_clip.name,
-                parent_clip.start.frames, parent_clip.source_start.frames):
+                parent_clip.start.frames, parent_clip.source_start.frames,
+                parent_clip.enabled):
             parent_clip.connected_clips.append(connected)
             timeline.connected_clips.append(connected)
 
@@ -605,11 +690,20 @@ class FCPXMLParser:
 
     def _parse_one_connected_clip(self, elem: ET.Element, lane: int, parent_name: str,
                                    parent_offset: int = 0, parent_start: int = 0,
+                                   *, enabled: bool = True, storyline: str = '',
+                                   placed: Optional[ET.Element] = None,
+                                   positioned: bool = False,
                                    ) -> Optional[ConnectedClip]:
-        """Parse a single connected clip element."""
+        """Parse a single connected clip element.
+
+        ``placed`` is the element whose ``offset`` positions it: the clip
+        itself, or the ``<audition>`` wrapping it. ``positioned`` says
+        ``parent_offset`` is already this clip's timeline frame (a storyline
+        resolves it exactly), so the offset is not added again.
+        """
         duration = self._tc(elem, 'duration')
         start = self._tc(elem, 'start')
-        offset = self._tc(elem, 'offset')
+        offset = self._tc(placed if placed is not None else elem, 'offset')
         ref = elem.get('ref', '')
         media_path = self._media_path_for(elem)
         role = elem.get('audioRole', '') or elem.get('videoRole', '')
@@ -618,7 +712,7 @@ class FCPXMLParser:
             text = ''.join(t.text or '' for t in elem.iter('text')).strip()
         name = self._name_for(elem, text or 'Untitled')
         timeline_start = Timecode(
-            frames=parent_offset + offset.frames - parent_start,
+            frames=parent_offset if positioned else parent_offset + offset.frames - parent_start,
             frame_rate=self.frame_rate,
         )
 
@@ -631,6 +725,7 @@ class FCPXMLParser:
             timeline_start=timeline_start, text=text,
             media=self._media_ref_for(elem), conform=conform,
             transform=transform, effects=effects, volume_db=self._volume_of(elem),
+            enabled=enabled, storyline=storyline,
         )
 
         connected.markers.extend(

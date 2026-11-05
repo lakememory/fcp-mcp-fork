@@ -244,6 +244,8 @@ def build_payload(
             "file_start": rational(file_src),
             "media": media,
             "role": role,
+            "enabled": bool(getattr(item, "enabled", True)),
+            "storyline": getattr(item, "storyline", "") or "",
             "keywords": [k.value for k in getattr(item, "keywords", []) or []],
             "markers": _marker_rows(
                 getattr(item, "markers", []) or [], Fraction(0) if connected else origin

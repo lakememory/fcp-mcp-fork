@@ -475,8 +475,16 @@ def compile_timeline(
     ffmpeg refuses the full graph it is rebuilt without them, and the report
     says which was dropped.
     """
-    clips = sorted(getattr(timeline, "clips", None) or [], key=lambda c: _seconds(c.start))
+    # A disabled clip (enabled="0") keeps its time and shows nothing: on the
+    # spine it is a hole, which the loop below turns into black; on a lane it
+    # is simply absent, sound included.
+    every = getattr(timeline, "clips", None) or []
+    clips = sorted((c for c in every if getattr(c, "enabled", True)),
+                   key=lambda c: _seconds(c.start))
     spine_clips = [_segment_from(clip, 0, probes) for clip in clips]
+    connected_all = getattr(timeline, "connected_clips", None) or []
+    disabled = (len(every) - len(clips)
+                + sum(1 for c in connected_all if not getattr(c, "enabled", True)))
 
     # Holes in the spine (gaps, spine titles, generators) are black, and keep
     # their time. Before 0.28 they collapsed and everything after a gap came
@@ -495,9 +503,13 @@ def compile_timeline(
     total = cursor
 
     notes: list[str] = []
+    if disabled:
+        notes.append(f"{disabled} disabled clip(s) not drawn and not heard")
     lanes: list[Segment] = []
     below: list[Segment] = []
-    for connected in getattr(timeline, "connected_clips", None) or []:
+    for connected in connected_all:
+        if not getattr(connected, "enabled", True):
+            continue
         lane = getattr(connected, "lane", 1)
         if lane <= 0:
             if getattr(connected, "media_path", ""):

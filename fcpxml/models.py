@@ -697,6 +697,9 @@ class Clip:
     effects: Tuple[str, ...] = ()
     # <adjust-volume amount="-6dB">, in dB; None when the clip has none.
     volume_db: Optional[float] = None
+    # enabled="0" (Final Cut's V key): the clip keeps its time but is neither
+    # seen nor heard.
+    enabled: bool = True
 
     @property
     def end(self) -> Timecode:
@@ -763,6 +766,10 @@ class ConnectedClip:
     transform: Optional[Transform] = None
     effects: Tuple[str, ...] = ()
     volume_db: Optional[float] = None
+    # False when this clip or anything it hangs off has enabled="0".
+    enabled: bool = True
+    # Name of the connected storyline (<spine lane="N">) it sits in, if any.
+    storyline: str = ""
 
     @property
     def duration_seconds(self) -> float:
