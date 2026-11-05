@@ -6,6 +6,35 @@ call the server handles, in the Logic Pro MCP's trace format. Nothing else in
 the server is fixed, refactored or restyled. `docs/TRACE.md` is the design and
 the schema.
 
+## Branch `perception` (2026-11-05)
+
+Everything below this section describes the `trace` branch, which is unchanged.
+`perception` is a second branch: upstream `v0.30.0` (`dec1ff2`), the two trace commits
+cherry-picked onto it, then three commits that let a model judge a cut from what
+plays rather than from clip counts. Local only, nothing pushed.
+
+| Commit | What | Upstreamable |
+|---|---|---|
+| `fix(parser): read connected storylines, disabled clips and audition picks` | Final Cut writes a connected storyline as `<spine lane="N">`. The parser matched only `<storyline>`, so a film with its narration, music and effects in storylines read as 0 connected clips. Also reads `enabled="0"` and plays an `<audition>`'s first child. | Yes, as it stands. It touches no tracing code. |
+| `feat(see): ...` | `fcpxml/coverage.py`, `checks.py`, `shadow.py`, `sheet.py`, `tools/see.py`: the `see` group (`shadow`, `contact_sheet`). Also `Timeline.gaps`, `time_map` on clips, and a sound file with no `hasVideo` attribute is no longer picture. | Yes, minus the `fcpxml/trace.py` and count lines. |
+| `fix(checks): ...` | Inheritance of a hole from the base build. | With the one above. |
+
+Upstream-owned files touched: `fcpxml/parser.py`, `fcpxml/models.py`,
+`fcpxml/filtergraph.py`, `fcpxml/timeline_app.py`, `tools/__init__.py` (two lines),
+`pyproject.toml` (the optional `see` extra: Pillow), and the counts in `server.json`,
+`.claude-plugin/plugin.json`, `skill/SKILL.md` and `tests/test_tool_groups.py`
+(17 groups, 109 operations). Everything else is new files.
+
+Conflicts met when cherry-picking the trace commits onto `v0.30.0`: the version and
+counts in `plugin.json` and `server.json`, and `fcpxml/render.py` (upstream rewrote
+`render_proxy`; resolved by taking upstream's and routing its four new
+`subprocess.run` sites through `traced_run`).
+
+Known limits, stated in the tools' own output: picture is the top enabled full-frame
+clip read from its source file. Opacity, crops, keyframed transforms and transitions
+are not read. `preview_render` does not read `<timeMap>` either, so a retimed clip in
+a proxy render plays at source speed; the contact sheets do read it.
+
 ## Base
 
 | | |
