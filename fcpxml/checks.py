@@ -208,18 +208,26 @@ def run(
     )
 
     # --- black, and narration over it ----------------------------------
+    # A hole is the same hole as one in the base when it sits between the
+    # same two shots, or is the same named gap or the same switched-off clip
+    # (a hole can keep its name while a neighbour changes).
     base_black: dict = {}
     for index, span in enumerate(base_spans):
         if span.black:
-            key = _neighbours(base_spans, index)
-            base_black[key] = max(base_black.get(key, Fraction(0)), span.duration)
+            cause = coverage.why_black(span, base, base_pool)
+            keys = [_neighbours(base_spans, index)]
+            if cause.startswith(('gap "', "switched off:")):
+                keys.append(cause)
+            for key in keys:
+                base_black[key] = max(base_black.get(key, Fraction(0)), span.duration)
 
     black_level: dict = {}
     for index, span in enumerate(spans):
         if not span.black:
             continue
         cause = coverage.why_black(span, timeline, pool)
-        before = base_black.get(_neighbours(spans, index))
+        known = [base_black[k] for k in (_neighbours(spans, index), cause) if k in base_black]
+        before = max(known) if known else None
         if before is not None and span.duration <= before + frame:
             level, note = INHERITED, ""
         elif before is not None:

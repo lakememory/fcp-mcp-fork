@@ -56,6 +56,16 @@ def test_black_that_grew_fails_and_says_what_it_was():
     assert "was 6.0 s in the base" in black[0].text
 
 
+def test_a_named_hole_is_the_same_hole_when_a_neighbour_changes():
+    # The base's named gap, now followed by a different shot and shorter.
+    renamed = WORSE_SPINE.replace('name="Shot B" start="10s"', 'name="Another shot" start="40s"').replace(
+        'offset="10s" start="0s" duration="6s"', 'offset="10s" start="0s" duration="4s"'
+    ).replace('offset="16s" name="Another shot"', 'offset="14s" name="Another shot"').replace(
+        'offset="26s" name="Shot C"', 'offset="24s" name="Shot C"')
+    report = checks.run(cut(renamed, "34s"), worse())
+    assert [f.level for f in report.findings if f.code == "black"] == [checks.INHERITED]
+
+
 def test_without_a_base_every_finding_counts():
     report = checks.run(worse())
     assert sorted(_codes(report)) == ["black", "vo-uncovered"]
