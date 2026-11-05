@@ -148,8 +148,10 @@ class TestGroupCoverage:
         binds the UI to a TOOL's `_meta`, and `gen` is the money-gated verb
         a model must choose on purpose rather than a flavour of `generate`.
         Raised 15 -> 16 in the trace fork: `trace` (docs/TRACE.md, FORK.md).
+        Raised 16 -> 17 for `see`: the views that show what plays, kept apart
+        from `preview` because its results carry images.
         """
-        assert len(server.TOOL_GROUPS) <= 16
+        assert len(server.TOOL_GROUPS) <= 17
         assert len(server.TOOL_HANDLERS) >= 62
 
 

@@ -700,6 +700,9 @@ class Clip:
     # enabled="0" (Final Cut's V key): the clip keeps its time but is neither
     # seen nor heard.
     enabled: bool = True
+    # <timeMap>: (clip-local time, source time) points in exact seconds, in
+    # order. Empty when the clip is not retimed.
+    time_map: Tuple[Tuple[Fraction, Fraction], ...] = ()
 
     @property
     def end(self) -> Timecode:
@@ -770,6 +773,8 @@ class ConnectedClip:
     enabled: bool = True
     # Name of the connected storyline (<spine lane="N">) it sits in, if any.
     storyline: str = ""
+    # See Clip.time_map.
+    time_map: Tuple[Tuple[Fraction, Fraction], ...] = ()
 
     @property
     def duration_seconds(self) -> float:
@@ -840,6 +845,19 @@ class Transition:
 
 
 @dataclass
+class Gap:
+    """A <gap> on the primary storyline: time with no clip of its own.
+
+    Editors name gaps and hang markers on them ("HOLD: ...", a shot still to
+    come), so the name and markers are what a hole in the picture means.
+    """
+    name: str
+    start: Timecode
+    duration: Timecode
+    markers: List[Marker] = field(default_factory=list)
+
+
+@dataclass
 class Timeline:
     """Represents a Final Cut Pro timeline/sequence."""
     name: str
@@ -853,6 +871,7 @@ class Timeline:
     markers: List[Marker] = field(default_factory=list)
     connected_clips: List[ConnectedClip] = field(default_factory=list)
     compound_clips: List[CompoundClip] = field(default_factory=list)
+    gaps: List[Gap] = field(default_factory=list)
 
     @property
     def total_clips(self) -> int:

@@ -11,6 +11,7 @@ from .models import (
     MARKER_XML_TAGS,
     Clip,
     ConnectedClip,
+    Gap,
     Keyword,
     Marker,
     MarkerType,
@@ -49,6 +50,11 @@ _SPINE_CLIP_TAGS = ('asset-clip', 'clip', 'video', 'mc-clip', 'sync-clip', 'ref-
 # duration; skipping one moved every clip after a spine title early by the
 # title's length.
 _SPINE_TIME_ONLY_TAGS = ('title', 'audio', 'audition', 'live-drawing', 'caption')
+
+# Sound files: never picture, whatever the asset declares or omits.
+_AUDIO_EXTENSIONS = (
+    '.wav', '.mp3', '.aif', '.aiff', '.m4a', '.aac', '.flac', '.caf', '.ogg', '.opus',
+)
 
 # Image files Final Cut imports as stills.
 _STILL_EXTENSIONS = (
@@ -296,9 +302,32 @@ class FCPXMLParser:
             width=size[0] if size else None,
             height=size[1] if size else None,
             still=bool(still),
-            has_video=bool(asset.get('hasVideo', True)) and elem.tag != 'audio',
+            # hasVideo is #IMPLIED and read as "yes" when absent, so a sound
+            # file written without it would count as picture.
+            has_video=(bool(asset.get('hasVideo', True)) and elem.tag != 'audio'
+                       and not src.endswith(_AUDIO_EXTENSIONS)),
             has_audio=bool(asset.get('declaresAudio')) and not still and elem.tag != 'video',
         )
+
+    @staticmethod
+    def _time_map_of(elem: ET.Element) -> tuple:
+        """<timeMap> as ((clip-local time, source time), ...) in exact seconds.
+
+        Read as straight lines between points, which is what a constant
+        speed change is. Anything unreadable is no map: the clip then plays
+        at its written in-point, which is the old behaviour.
+        """
+        time_map = elem.find('timeMap')
+        if time_map is None:
+            return ()
+        try:
+            points = sorted(
+                (parse_seconds(p.get('time')), parse_seconds(p.get('value')))
+                for p in time_map.findall('timept')
+            )
+        except ValueError:
+            return ()
+        return tuple(points) if len(points) >= 2 else ()
 
     @staticmethod
     def _volume_of(elem: ET.Element) -> Optional[float]:
@@ -398,8 +427,14 @@ class FCPXMLParser:
                     current_offset += clip.duration.frames
             elif tag == 'gap':
                 gap_frames = self._tc(elem, 'duration').frames
-                self._parse_gap_connected_clips(
-                    elem, current_offset, self._tc(elem, 'start').frames, timeline)
+                gap_start = self._tc(elem, 'start').frames
+                timeline.gaps.append(Gap(
+                    name=elem.get('name', ''),
+                    start=Timecode(frames=current_offset, frame_rate=self.frame_rate),
+                    duration=self._tc(elem, 'duration'),
+                    markers=self._collect_markers(elem, current_offset, gap_start),
+                ))
+                self._parse_gap_connected_clips(elem, current_offset, gap_start, timeline)
                 current_offset += gap_frames
             elif tag == 'transition':
                 transition = self._parse_transition(elem, current_offset, raw_cut)
@@ -438,6 +473,7 @@ class FCPXMLParser:
             effects=effects,
             volume_db=self._volume_of(elem),
             enabled=elem.get('enabled', '1') != '0',
+            time_map=self._time_map_of(elem),
         )
 
         clip.markers.extend(self._collect_markers(elem, offset, source_start.frames))
@@ -725,7 +761,7 @@ class FCPXMLParser:
             timeline_start=timeline_start, text=text,
             media=self._media_ref_for(elem), conform=conform,
             transform=transform, effects=effects, volume_db=self._volume_of(elem),
-            enabled=enabled, storyline=storyline,
+            enabled=enabled, storyline=storyline, time_map=self._time_map_of(elem),
         )
 
         connected.markers.extend(

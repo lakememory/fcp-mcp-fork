@@ -97,6 +97,7 @@ MUTATING: dict[str, bool] = _table(
     ("gen", False, "gen_quote"),
     ("gen", True, "gen_fill_gap gen_broll gen_extend_clip"),
     ("trace", False, "begin_run log_intent end_run status show"),
+    ("see", False, "shadow contact_sheet"),
 )
 
 

@@ -71,6 +71,11 @@ find = [
     "mlx-vlm>=0.1.0",
     "numpy",
 ]
+see = [
+    # Contact sheets (fcpxml/sheet.py): labels and the grid are drawn with
+    # Pillow because a stock ffmpeg build has no drawtext filter.
+    "Pillow>=10.0.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
