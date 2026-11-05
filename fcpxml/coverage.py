@@ -15,13 +15,19 @@ carry picture, and a static transform that shrinks or moves the frame. What
 is NOT read: opacity, crops, masks, blend modes, keyframed transforms and
 transitions. A clip is taken to fill the frame unless its transform says it
 does not, and the top enabled full-frame clip is what is "on screen".
+
+What is in a file is not in the XML either. items() takes ``dark``, a
+callable that says whether a file is black at given instants (the one that
+looks is fcpxml/blackness.py). A top clip that is black hides what is under
+it and shows nothing: the stretch is black, and the clip is named as why.
+Without ``dark`` every file counts as picture.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 from .media_intel import media_src_to_path
 
@@ -41,6 +47,12 @@ MUSIC = "music"
 EFFECTS = "effects"
 SOUND = "sound"
 SOUND_KINDS = (NARRATION, MUSIC, EFFECTS, SOUND)
+
+# Where in a clip's length its file is looked at to decide it is black: the
+# middle first, so a shot that is not black is settled by one frame.
+DARK_SAMPLES = (Fraction(1, 2), Fraction(1, 10), Fraction(9, 10))
+
+DarkFn = Callable[[str, list], bool]
 
 
 def seconds(tc: Any) -> Fraction:
@@ -73,6 +85,7 @@ class Item:
     origin: Fraction = Fraction(0)  # where the asset's clock begins
     time_map: tuple = ()
     markers: tuple = ()  # ((timeline seconds, text), ...)
+    black: bool = False  # its file is black where the cut plays it
 
     @property
     def duration(self) -> Fraction:
@@ -115,13 +128,16 @@ class Span:
 
     ``item`` is the top enabled full-frame clip, or None. ``over`` holds
     enabled picture above it that does not fill the frame (titles, a clip
-    scaled into a corner). Nothing in either is black.
+    scaled into a corner). Nothing in either is black. ``slug`` is the top
+    clip when its file is black: it hides what is under it, so ``item`` is
+    None and the stretch is black because of it.
     """
 
     start: Fraction
     end: Fraction
     item: Optional[Item] = None
     over: tuple = ()
+    slug: Optional[Item] = None
 
     @property
     def duration(self) -> Fraction:
@@ -220,11 +236,25 @@ def _item(obj: Any, *, connected: bool) -> Item:
     )
 
 
-def items(timeline: Any) -> list[Item]:
-    """Every clip on the sequence clock, enabled or not, in time order."""
+def items(timeline: Any, dark: Optional[DarkFn] = None) -> list[Item]:
+    """Every clip on the sequence clock, enabled or not, in time order.
+
+    ``dark(path, [file seconds, ...])`` says whether a file is black at those
+    instants. Each enabled full-frame clip with a file is asked about, at
+    DARK_SAMPLES of its length, and marked ``black`` when it is.
+    """
     found = [_item(c, connected=False) for c in getattr(timeline, "clips", None) or ()]
     found += [_item(c, connected=True) for c in getattr(timeline, "connected_clips", None) or ()]
+    if dark is not None:
+        found = [_looked_at(i, dark) for i in found]
     return sorted(found, key=lambda i: (i.start, -i.lane, i.name))
+
+
+def _looked_at(item: Item, dark: DarkFn) -> Item:
+    if not (item.enabled and item.covers and item.media and item.end > item.start):
+        return item
+    instants = [item.file_time(item.start + item.duration * part) for part in DARK_SAMPLES]
+    return replace(item, black=True) if dark(item.media, instants) else item
 
 
 def total(timeline: Any, found: Optional[Iterable[Item]] = None) -> Fraction:
@@ -252,14 +282,18 @@ def picture(timeline: Any, found: Optional[list[Item]] = None) -> list[Span]:
         full = [i for i in here if i.covers]
         top = max(full, key=lambda i: i.lane) if full else None
         floor = top.lane if top is not None else None
+        slug = None
+        if top is not None and top.black:
+            slug, top = top, None
         over = tuple(sorted(
             (i for i in here if not i.covers and (floor is None or i.lane > floor)),
             key=lambda i: i.lane,
         ))
-        if spans and spans[-1].item is top and spans[-1].over == over:
-            spans[-1] = Span(spans[-1].start, b, top, over)
+        last = spans[-1] if spans else None
+        if last is not None and last.item is top and last.slug is slug and last.over == over:
+            spans[-1] = Span(last.start, b, top, over, slug)
         else:
-            spans.append(Span(a, b, top, over))
+            spans.append(Span(a, b, top, over, slug))
     return spans
 
 
@@ -304,6 +338,8 @@ def at(timeline: Any, instant: Fraction,
 
 def why_black(span: Span, timeline: Any, found: Optional[list[Item]] = None) -> str:
     """What the hole is, in the editor's own words where the document has them."""
+    if span.slug is not None:
+        return f"black clip: {span.slug.name}"
     pool = found if found is not None else items(timeline)
     off = [i.name for i in pool
            if not i.enabled and i.kind == PICTURE and i.primary

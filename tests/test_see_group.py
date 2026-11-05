@@ -7,8 +7,8 @@ import pytest
 
 import server
 import tools
-from fcpxml import journal, render
-from tests.cuts import BASE_SPINE, WORSE_SPINE, xml
+from fcpxml import blackness, journal, render
+from tests.cuts import BASE_SPINE, MASKED_SPINE, WORSE_SPINE, xml
 
 
 @pytest.fixture(autouse=True)
@@ -95,7 +95,38 @@ def test_see_actions_are_not_gated_and_not_recorded_as_writes(cuts):
     assert "sha256 of what was written" not in text.lower()
 
 
+@pytest.fixture
+def mask(tmp_path, monkeypatch):
+    """A cut with a black movie over its back two thirds; the movie is a real file."""
+    movie = tmp_path / "black.mov"
+    movie.write_bytes(b"stands in for a black movie")
+    looked = []
+    monkeypatch.setattr(
+        blackness, "peak", lambda source, at: looked.append(source) or 0
+    )
+    path = tmp_path / "masked.fcpxml"
+    path.write_text(xml(MASKED_SPINE, "30s", black=movie.as_uri()))
+    return path, looked
+
+
+def test_shadow_looks_at_the_files_and_keeps_what_it_saw(mask, _private_cache):
+    path, looked = mask
+    text = _call("shadow", {"filepath": str(path)})[0].text
+    assert "FAIL      black         0:10.0 to 0:30.0  20.0 s with no picture: black clip" in text
+    assert "A clip whose file is black where it plays counts as black." in text
+    assert len(looked) == 3 and (_private_cache / "black.json").is_file()
+    _call("shadow", {"filepath": str(path)})
+    assert len(looked) == 3  # the second call read the cache, not the file
+
+
 PIL = pytest.importorskip("PIL")
+
+
+def test_contact_sheet_names_a_black_movie_as_no_picture(mask):
+    path, _looked = mask
+    text = _call("contact_sheet", {"filepath": str(path), "start": "0:08", "end": "0:14",
+                                   "inline": False})[0].text
+    assert " 0:10.0  NO PICTURE: black clip: BLACKOUT from 0:10" in text
 
 
 def test_contact_sheet_returns_the_index_and_the_picture(cuts, _private_cache):

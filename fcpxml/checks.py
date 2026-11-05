@@ -16,7 +16,9 @@ Two kinds of output, kept apart on purpose:
   no verdict. Whether +66 s is a problem is the editor's call.
 
 A name on a gap is a label, not permission. A build that adds black and
-names it "BLACK: coconut on empty sand" has still added black.
+names it "BLACK: coconut on empty sand" has still added black. So has one
+that lays a black movie over the picture: with ``dark`` given, a clip whose
+file is black is black (fcpxml/blackness.py looks; this module does not).
 """
 
 from __future__ import annotations
@@ -38,6 +40,10 @@ FLASH_FRAMES = 6
 # Sound is cut between frames and positions are floored to one; an overlap
 # has to exceed this many frames before it is treated as real.
 TOUCH_FRAMES = 3
+# More narration lines than this over one stretch of black are reported as
+# one finding, so a long black does not bury the other findings under a row
+# per line.
+LINES_PER_BLACK = 3
 
 
 @dataclass(frozen=True)
@@ -66,6 +72,9 @@ class Report:
     changes: list = field(default_factory=list)
     unmoved: dict = field(default_factory=dict)  # kind -> count
     has_base: bool = False
+    # Every narration line that plays over black, one entry per line however
+    # the findings group them: (item, the part over black, level).
+    over_black: list = field(default_factory=list)
 
     @property
     def failures(self) -> list:
@@ -183,24 +192,26 @@ def run(
     *,
     scope: Optional[list] = None,
     exists: Optional[Callable[[str], bool]] = None,
+    dark: Optional[coverage.DarkFn] = None,
 ) -> Report:
     """Check *timeline*, against *base* when one is given.
 
     ``scope`` is a list of (start, end) windows in seconds the pass said it
     would touch; a change outside every window is a finding. ``exists`` tests
-    a file path; leave it None to skip the missing-media check (this module
-    does no I/O of its own).
+    a file path; leave it None to skip the missing-media check. ``dark`` says
+    whether a file is black at given instants (see coverage.items); leave it
+    None and every file counts as picture. This module does no I/O of its own.
     """
     report = Report(has_base=base is not None)
     frame = frame_duration_seconds(getattr(timeline, "frame_rate", 24.0) or 24.0)
     touch = TOUCH_FRAMES * frame
 
-    pool = coverage.items(timeline)
+    pool = coverage.items(timeline, dark)
     spans = coverage.picture(timeline, pool)
     length = coverage.total(timeline, pool)
     narration = coverage.sound(timeline, coverage.NARRATION, pool)
 
-    base_pool = coverage.items(base) if base is not None else []
+    base_pool = coverage.items(base, dark) if base is not None else []
     base_spans = coverage.picture(base, base_pool) if base is not None else []
     base_length = coverage.total(base, base_pool) if base is not None else None
     base_narration = (
@@ -209,14 +220,14 @@ def run(
 
     # --- black, and narration over it ----------------------------------
     # A hole is the same hole as one in the base when it sits between the
-    # same two shots, or is the same named gap or the same switched-off clip
-    # (a hole can keep its name while a neighbour changes).
+    # same two shots, or is the same named gap, switched-off clip or black
+    # clip (a hole can keep its name while a neighbour changes).
     base_black: dict = {}
     for index, span in enumerate(base_spans):
         if span.black:
             cause = coverage.why_black(span, base, base_pool)
             keys = [_neighbours(base_spans, index)]
-            if cause.startswith(('gap "', "switched off:")):
+            if cause.startswith(('gap "', "switched off:", "black clip:")):
                 keys.append(cause)
             for key in keys:
                 base_black[key] = max(base_black.get(key, Fraction(0)), span.duration)
@@ -240,16 +251,30 @@ def run(
             f"{secs(span.duration)} with no picture{note}: {cause}",
         ))
 
+    by_hole: dict = defaultdict(list)
     for item, part in coverage.uncovered(timeline, coverage.NARRATION, pool):
         if part.duration <= touch:
             continue
         hole = next(
-            (lvl for (a, b), lvl in black_level.items() if a <= part.start and b >= part.end),
-            FAIL,
+            (key for key in black_level if key[0] <= part.start and key[1] >= part.end),
+            None,
         )
+        level = black_level.get(hole, FAIL)
+        report.over_black.append((item, part, level))
+        by_hole[hole].append((item, part, level))
+    for hits in sorted(by_hole.values(), key=lambda found: found[0][1].start):
+        if len(hits) <= LINES_PER_BLACK:
+            for item, part, level in hits:
+                report.findings.append(Finding(
+                    "vo-uncovered", level, part.start, part.end,
+                    f"{item.name!r} plays over black for {secs(part.duration)}",
+                ))
+            continue
+        said = sum((part.duration for _, part, _ in hits), Fraction(0))
         report.findings.append(Finding(
-            "vo-uncovered", hole, part.start, part.end,
-            f"{item.name!r} plays over black for {secs(part.duration)}",
+            "vo-uncovered", hits[0][2], hits[0][1].start, hits[-1][1].end,
+            f"{len(hits)} narration lines play over this black for {secs(said)} in all: "
+            f"{hits[0][0].name!r} to {hits[-1][0].name!r}",
         ))
 
     # --- narration against itself --------------------------------------

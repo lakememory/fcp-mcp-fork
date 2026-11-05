@@ -6,8 +6,8 @@ from fractions import Fraction
 
 import pytest
 
-from fcpxml import render, sheet
-from tests.cuts import BASE_SPINE, base, cut, worse
+from fcpxml import coverage, render, sheet
+from tests.cuts import BASE_SPINE, base, cut, is_black, masked, worse
 
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
@@ -171,3 +171,19 @@ def test_the_default_frame_is_read_from_the_source_file_and_cached(tmp_path, _pr
     assert sheet.cached_frame(str(source), Fraction(1)) == first
     assert (_private_cache / "frames").stat().st_mtime_ns == stamp  # nothing new written
     assert sheet.cached_frame(str(tmp_path / "missing.mp4"), Fraction(1)) is None
+
+
+def test_a_black_movie_is_drawn_and_named_as_black(tmp_path):
+    timeline = masked()
+    plain = sheet.plan(timeline, start=Fraction(8), end=Fraction(14), step=Fraction(2))
+    assert [t.black for t in plain] == [False, False, False]  # read as picture without the test
+    tiles = sheet.plan(timeline, start=Fraction(8), end=Fraction(14), step=Fraction(2),
+                       found=coverage.items(timeline, is_black))
+    assert [t.black for t in tiles] == [False, True, True]
+    assert tiles[1].shot == "NO PICTURE: black clip: BLACKOUT from 0:10" and tiles[1].source == ""
+    assert tiles[2].said == "N02 second line"
+    result = sheet.render_sheets(
+        timeline, name="masked.fcpxml", start=Fraction(8), end=Fraction(14),
+        frame=_solid(tmp_path, (90, 90, 200)), dark=is_black,
+    )
+    assert [t.black for t in result["sheets"][0]["tiles"]] == [False, True, True]

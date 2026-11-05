@@ -260,14 +260,17 @@ def render_sheets(
     max_sheets: int = 2,
     movie: str = "",
     frame: Optional[FrameFn] = None,
+    dark=None,
 ) -> dict:
     """Plan, draw and describe the sheets for a range.
 
     Returns ``sheets`` (each with ``path``, ``tiles`` and ``unread``) and
     ``resume``: the instant the next call should start from when the range
-    needed more than *max_sheets*, else None.
+    needed more than *max_sheets*, else None. ``dark`` is the black-file test
+    (see coverage.items): with it a black clip is drawn and named as black.
     """
-    tiles = plan(timeline, start, end, step, movie=movie)
+    found = coverage.items(timeline, dark) if dark is not None else None
+    tiles = plan(timeline, start, end, step, movie=movie, found=found)
     groups = pages(tiles)
     drawn = groups[:max(1, int(max_sheets))]
     stem = Path(name).stem.replace("/", "_")

@@ -5,7 +5,7 @@ from fractions import Fraction
 import pytest
 
 from fcpxml import shadow
-from tests.cuts import BASE_SPINE, WORSE_SPINE, base, cut, worse, xml
+from tests.cuts import BASE_SPINE, WORSE_SPINE, base, cut, is_black, masked, worse, xml
 
 
 def _rows(text):
@@ -150,3 +150,22 @@ def test_a_bundle_is_read_through_its_info_file(tmp_path):
     assert shadow.document_path(str(bundle)) == bundle / "Info.fcpxml"
     assert len(shadow.load(str(bundle)).clips) == 3
     assert len(shadow.file_sha256(str(bundle))) == 64
+
+
+def test_a_black_movie_is_a_black_row_and_every_line_under_it_is_flagged():
+    text, report = shadow.render(masked(), name="masked.fcpxml", base=base(), dark=is_black)
+    rows = _rows(text)
+    black = next(r for r in rows if r.split()[0] == "0:10.0")
+    assert "-- BLACK: black clip: BLACKOUT from 0:10" in black
+    for name in ("N02 second line", "N03 third line"):
+        assert next(r for r in rows if name in r).rstrip().endswith("<< over black")
+    assert not next(r for r in rows if "N01 first line" in r).rstrip().endswith("<< over black")
+    assert "FAIL      black         0:10.0 to 0:30.0  20.0 s with no picture: black clip" in text
+    assert "A clip whose file is black where it plays counts as black." in text
+    assert len(report.failures) == 3
+
+
+def test_the_view_says_when_files_were_not_looked_at():
+    text, report = shadow.render(masked(), name="masked.fcpxml", base=base())
+    assert "Files were not looked at: a black clip counts as picture." in text
+    assert report.failures == []

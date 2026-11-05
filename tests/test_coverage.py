@@ -3,7 +3,7 @@
 from fractions import Fraction
 
 from fcpxml import coverage
-from tests.cuts import BASE_SPINE, base, cut, worse
+from tests.cuts import BASE_SPINE, base, cut, is_black, masked, worse
 
 
 def _names(spans):
@@ -132,3 +132,43 @@ def test_gaps_keep_their_name_and_markers():
     assert gap.start.seconds == 10.0
     assert [m.name for m in gap.markers] == ["SHOT LIST 1: something goes here"]
     assert gap.markers[0].timeline_start.seconds == 11.0
+
+
+def test_a_black_movie_on_top_is_black_and_hides_what_is_under_it():
+    timeline = masked()
+    pool = coverage.items(timeline, is_black)
+    slug = next(i for i in pool if i.name == "BLACKOUT from 0:10")
+    assert slug.black and not any(i.black for i in pool if i is not slug)
+    spans = coverage.picture(timeline, pool)
+    assert _names(spans) == [(0, 10, "Shot A"), (10, 30, None)]
+    assert spans[1].black and spans[1].slug is slug
+    assert coverage.why_black(spans[1], timeline, pool) == "black clip: BLACKOUT from 0:10"
+    over = coverage.uncovered(timeline, coverage.NARRATION, pool)
+    assert [item.name for item, _ in over] == ["N02 second line", "N03 third line"]
+
+
+def test_without_looking_at_files_a_black_movie_is_picture():
+    # The limit the XML has on its own, and why dark exists.
+    timeline = masked()
+    assert _names(coverage.picture(timeline)) == [(0, 10, "Shot A"), (10, 30, "BLACKOUT from 0:10")]
+    assert coverage.black(timeline) == []
+
+
+def test_a_clip_is_asked_about_inside_the_range_it_plays():
+    asked = {}
+
+    def dark(path, instants):
+        asked[path.rsplit("/", 1)[-1]] = [float(t) for t in instants]
+        return False
+
+    spine = BASE_SPINE.replace(
+        '<asset-clip ref="pic" offset="20s" name="Shot C" start="20s" duration="10s"/>',
+        '<asset-clip ref="cam" offset="20s" name="Shot C" start="3640s" duration="10s"/>',
+    ).replace(
+        '<asset-clip ref="pic" offset="10s" name="Shot B" start="10s" duration="10s"/>',
+        '<asset-clip ref="slug" offset="10s" name="Shot B" start="100s" duration="10s" enabled="0"/>',
+    )
+    coverage.items(cut(spine), dark)
+    # Shot C plays file seconds 40 to 50 (its asset clock starts at 3600):
+    # the middle first, then a tenth and nine tenths of the way through.
+    assert asked == {"picture.mov": [45.0, 41.0, 49.0]}  # the switched-off clip is not asked about

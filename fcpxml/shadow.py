@@ -154,9 +154,7 @@ def _rows(timeline: Any, pool: list, report: checks.Report,
     spans = coverage.picture(timeline, pool)
     narration = coverage.sound(timeline, coverage.NARRATION, pool)
     other = [i for i in coverage.sound(timeline, None, pool) if i.kind != coverage.NARRATION]
-    over_black = {
-        f.start for f in report.findings if f.code == "vo-uncovered" and f.level == checks.FAIL
-    }
+    over_black = {item for item, _part, level in report.over_black if level == checks.FAIL}
 
     times = sorted({s.start for s in spans} | {i.start for i in narration})
     span_at = {s.start: s for s in spans}
@@ -202,9 +200,8 @@ def _rows(timeline: Any, pool: list, report: checks.Report,
         said = said_at.get(t, [])
         line = " / ".join(i.name for i in said)
         flag = ""
-        for item in said:
-            if any(item.start <= when < item.end for when in over_black):
-                flag = "  << over black"
+        if any(item in over_black for item in said):
+            flag = "  << over black"
         starting = [i for i in other if t <= i.start < nxt]
         heard = " | ".join(_cut(i.name, SOUND_WIDTH) for i in starting[:MAX_SOUND_PER_ROW])
         if len(starting) > MAX_SOUND_PER_ROW:
@@ -252,12 +249,17 @@ def render(
     start: Optional[Fraction] = None,
     end: Optional[Fraction] = None,
     exists=None,
+    dark=None,
     checks_only: bool = False,
     markers: bool = False,
 ) -> tuple[str, checks.Report]:
-    """The shadow view as text, and the report it was built from."""
-    pool = coverage.items(timeline)
-    report = checks.run(timeline, base, scope=scope, exists=exists)
+    """The shadow view as text, and the report it was built from.
+
+    ``dark`` is the black-file test (blackness.Probe, or a stand-in); without
+    it a black movie laid over the cut reads as picture, and the view says so.
+    """
+    pool = coverage.items(timeline, dark)
+    report = checks.run(timeline, base, scope=scope, exists=exists, dark=dark)
     length = coverage.total(timeline, pool)
     off = sum(1 for i in pool if not i.enabled)
     primary = sum(1 for i in pool if i.primary)
@@ -274,7 +276,10 @@ def render(
         head.append("scope   " + ", ".join(f"{clock(a)} to {clock(b)}" for a, b in scope))
     head.append(
         "Read from the XML, not from Final Cut. Picture is the top enabled full-frame "
-        "clip; opacity, crops, keyframed moves and dissolves are not read."
+        "clip; opacity, crops, keyframed moves and dissolves are not read. "
+        + ("A clip whose file is black where it plays counts as black."
+           if dark is not None else
+           "Files were not looked at: a black clip counts as picture.")
     )
 
     parts = [head, _check_lines(report), _base_lines(report)]
@@ -330,6 +335,9 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--markers", action="store_true", help="list markers under their rows")
     args = parser.parse_args(argv)
     try:
+        from .blackness import Probe
+
+        probe = Probe()
         timeline = load(args.filepath)
         base = load(args.base) if args.base else None
         text, report = render(
@@ -342,9 +350,11 @@ def main(argv: Optional[list] = None) -> int:
             start=parse_time(args.start) if args.start else None,
             end=parse_time(args.end) if args.end else None,
             exists=lambda p: Path(p).is_file(),
+            dark=probe,
             checks_only=args.checks,
             markers=args.markers,
         )
+        probe.save()
     except (OSError, ValueError) as exc:
         print(f"shadow: {exc}", file=sys.stderr)
         return 2

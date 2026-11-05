@@ -3,7 +3,7 @@
 from fractions import Fraction
 
 from fcpxml import checks
-from tests.cuts import BASE_SPINE, WORSE_SPINE, base, cut, worse
+from tests.cuts import BASE_SPINE, MASKED_SPINE, WORSE_SPINE, base, cut, is_black, masked, worse
 
 
 def _codes(report, level=checks.FAIL):
@@ -161,3 +161,67 @@ def test_clock_reads_like_a_note():
     assert checks.clock(Fraction(887, 10)) == "1:28.7"
     assert checks.clock(Fraction(0)) == "0:00.0"
     assert checks.clock(Fraction(59996, 100)) == "10:00.0"
+
+
+def test_a_black_movie_laid_over_the_picture_is_new_black():
+    report = checks.run(masked(), base(), dark=is_black)
+    black = [f for f in report.findings if f.code == "black"]
+    assert len(black) == 1 and black[0].level == checks.FAIL
+    assert (black[0].start, black[0].end) == (Fraction(10), Fraction(30))
+    assert "black clip: BLACKOUT from 0:10" in black[0].text
+    assert _fact(report, "black on screen") == ("0.0 s", "20.0 s  (+20.0 s)")
+    assert _codes(report).count("vo-uncovered") == 2
+
+
+def test_without_the_file_test_the_same_cut_passes():
+    # Mutation check for the one above: take dark away and the mask is "picture".
+    report = checks.run(masked(), base())
+    assert report.findings == []
+    assert _fact(report, "black on screen") == ("0.0 s", "0.0 s  (+0.0 s)")
+
+
+def test_a_black_movie_that_was_already_in_the_base_is_inherited():
+    report = checks.run(masked(), masked(), dark=is_black)
+    assert _codes(report) == []
+    assert sorted(_codes(report, checks.INHERITED)) == ["black", "vo-uncovered", "vo-uncovered"]
+
+
+def _many_lines(count):
+    """BASE's read replaced by *count* two-second lines from 0:11, under the mask."""
+    lines = ['<gap name="Gap" offset="0s" start="0s" duration="11s"/>']
+    for n in range(count):
+        lines.append(
+            f'<asset-clip ref="vo" offset="{11 + 3 * n}s" name="L{n + 1:02d} line" '
+            f'start="{3 * n}s" duration="2s" audioRole="dialogue"/>'
+        )
+        lines.append(f'<gap name="Gap" offset="{13 + 3 * n}s" start="0s" duration="1s"/>')
+    head, _, rest = MASKED_SPINE.partition('<spine lane="-1" offset="0s" name="NEW READ">')
+    _, _, tail = rest.partition("</spine>")
+    return head + '<spine lane="-1" offset="0s" name="NEW READ">' + "".join(lines) + "</spine>" + tail
+
+
+def test_many_lines_over_one_black_are_one_finding_that_names_the_first_and_last():
+    report = checks.run(cut(_many_lines(4)), dark=is_black)
+    over = [f for f in report.findings if f.code == "vo-uncovered"]
+    assert len(over) == 1 and over[0].level == checks.FAIL
+    assert (over[0].start, over[0].end) == (Fraction(11), Fraction(22))
+    assert over[0].text == (
+        "4 narration lines play over this black for 8.0 s in all: 'L01 line' to 'L04 line'"
+    )
+    # The report still knows each line, for the rows of the shadow view.
+    assert [item.name for item, _, _ in report.over_black] == [
+        "L01 line", "L02 line", "L03 line", "L04 line"
+    ]
+
+
+def test_up_to_three_lines_over_one_black_keep_a_row_each():
+    report = checks.run(cut(_many_lines(checks.LINES_PER_BLACK)), dark=is_black)
+    over = [f for f in report.findings if f.code == "vo-uncovered"]
+    assert [f.text.split("'")[1] for f in over] == ["L01 line", "L02 line", "L03 line"]
+
+
+def test_a_black_movie_is_the_same_black_when_the_shot_before_it_changes():
+    swapped = MASKED_SPINE.replace('name="Shot A"', 'name="Shot A, a different take"')
+    report = checks.run(cut(swapped), masked(), dark=is_black)
+    black = [f for f in report.findings if f.code == "black"]
+    assert len(black) == 1 and black[0].level == checks.INHERITED

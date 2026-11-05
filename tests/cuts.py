@@ -4,7 +4,8 @@ BASE is three ten-second shots with a three-line read and a music bed in
 connected storylines, the shape of a narrated documentary. WORSE is what a
 bad notes pass makes of it: a named black slot inserted after the first shot,
 everything after it pushed six seconds later, and one line dragged onto the
-black.
+black. MASKED is BASE with a black movie laid over everything from 0:10 on a
+lane above the picture, the way a pass hides a half it is not working on.
 """
 
 from fcpxml.parser import FCPXMLParser
@@ -12,6 +13,7 @@ from fcpxml.parser import FCPXMLParser
 PICTURE = "file:///nowhere/picture.mov"
 READ = "file:///nowhere/read.wav"
 MUSIC = "file:///nowhere/bed.wav"
+BLACK = "file:///nowhere/black.mov"
 
 TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE fcpxml>
@@ -23,6 +25,9 @@ TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
         </asset>
         <asset id="cam" name="camera" start="3600s" duration="600s" hasVideo="1" format="r1">
             <media-rep kind="original-media" src="{picture}"/>
+        </asset>
+        <asset id="slug" name="black" start="0s" duration="600s" hasVideo="1" format="r1">
+            <media-rep kind="original-media" src="{black}"/>
         </asset>
         <asset id="vo" name="read" start="0s" duration="600s">
             <media-rep kind="original-media" src="{read}"/>
@@ -84,11 +89,31 @@ WORSE_SPINE = """
 <asset-clip ref="pic" offset="26s" name="Shot C" start="20s" duration="10s"/>
 """
 
+BLACKOUT = """
+    <spine lane="2" offset="0s" name="BLACKOUT (delete to see picture)">
+        <gap name="Gap" offset="0s" start="0s" duration="10s"/>
+        <asset-clip ref="slug" offset="10s" name="BLACKOUT from 0:10" start="0s" duration="20s"/>
+    </spine>
+</asset-clip>
+<asset-clip ref="pic" offset="10s" name="Shot B" """
 
-def xml(spine: str, duration: str = "30s", name: str = "cut", picture: str = PICTURE) -> str:
+MASKED_SPINE = BASE_SPINE.replace(
+    '</asset-clip>\n<asset-clip ref="pic" offset="10s" name="Shot B" ', BLACKOUT.lstrip("\n")
+)
+assert MASKED_SPINE != BASE_SPINE
+
+
+def xml(spine: str, duration: str = "30s", name: str = "cut", picture: str = PICTURE,
+        black: str = BLACK) -> str:
     return TEMPLATE.format(
-        spine=spine, duration=duration, name=name, picture=picture, read=READ, music=MUSIC
+        spine=spine, duration=duration, name=name, picture=picture, read=READ, music=MUSIC,
+        black=black,
     )
+
+
+def is_black(path, instants=()):
+    """The stand-in for blackness.Probe: the fixture's black movie, and only it."""
+    return str(path).endswith("black.mov")
 
 
 def cut(spine: str, duration: str = "30s", name: str = "cut"):
@@ -102,3 +127,7 @@ def base():
 
 def worse():
     return cut(WORSE_SPINE, "36s", "worse")
+
+
+def masked():
+    return cut(MASKED_SPINE, "30s", "masked")

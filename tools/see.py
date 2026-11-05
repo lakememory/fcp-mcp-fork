@@ -15,7 +15,7 @@ from fractions import Fraction
 from pathlib import Path
 
 import tools
-from fcpxml import journal, render, shadow, sheet
+from fcpxml import blackness, journal, render, shadow, sheet
 from tools._common import parse_project, text_result
 
 MAX_SHEETS_CEILING = 6
@@ -68,6 +68,7 @@ async def handle_shadow(args: dict):
         return text_result(str(exc))
 
     sha = journal.file_hash(validated) or ""
+    probe = blackness.Probe()
     text, report = shadow.render(
         timeline,
         name=Path(validated).name,
@@ -78,9 +79,11 @@ async def handle_shadow(args: dict):
         start=start,
         end=end,
         exists=lambda p: Path(p).is_file(),
+        dark=probe,
         checks_only=args.get("checks_only") is True,
         markers=args.get("markers") is True,
     )
+    probe.save()
     directory = render.cache_dir() / "shadow"
     directory.mkdir(exist_ok=True)
     saved = directory / f"{Path(validated).stem}.{sha[:8] or 'nosha'}.shadow.txt"
@@ -112,6 +115,7 @@ async def handle_contact_sheet(args: dict):
     except (ValueError, TypeError) as exc:
         return text_result(str(exc))
 
+    probe = blackness.Probe()
     try:
         result = sheet.render_sheets(
             timeline,
@@ -119,9 +123,11 @@ async def handle_contact_sheet(args: dict):
             sha256=journal.file_hash(validated) or "",
             start=start, end=end, step=Fraction(step), max_sheets=max_sheets,
             movie=str(Path(movie).expanduser()) if movie else "",
+            dark=probe,
         )
     except (ValueError, RuntimeError) as exc:
         return text_result(str(exc))
+    probe.save()
 
     lines = []
     for number, page in enumerate(result["sheets"], 1):
@@ -165,7 +171,8 @@ DESCRIPTION = (
     "shadow(filepath, base?, scope?, start?, end?, markers?, checks_only?) returns "
     "the film as text: one row per change of picture or start of a narration line, "
     "showing what is on screen while each line is said, where the screen is black "
-    "and what is switched off. Above the rows it runs the checks (black on screen, "
+    "and what is switched off. A clip whose file is black where it plays counts as "
+    "black, whatever it is called. Above the rows it runs the checks (black on screen, "
     "narration over black, two narration lines at once, lost or reordered narration, "
     "flash frames, missing media) and, given base (the build this one was made "
     "from), measures runtime, black and silence against it and lists what moved. "
