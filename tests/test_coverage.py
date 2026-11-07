@@ -4,7 +4,7 @@ from dataclasses import replace
 from fractions import Fraction
 
 from fcpxml import coverage
-from tests.cuts import BASE_SPINE, base, cut, is_black, masked, worse
+from tests.cuts import BASE_SPINE, MASKED_SPINE, WORSE_SPINE, base, cut, is_black, masked, worse
 
 
 def _names(spans):
@@ -202,3 +202,23 @@ def test_a_clip_is_asked_about_inside_the_range_it_plays():
     # Shot C plays file seconds 40 to 50 (its asset clock starts at 3600):
     # the middle first, then a tenth and nine tenths of the way through.
     assert asked == {"picture.mov": [45.0, 41.0, 49.0]}  # the switched-off clip is not asked about
+
+
+def test_a_named_gap_and_the_switched_off_shot_after_it_are_two_holes():
+    # V19: the orange slot (a gap from V16) followed by the chicken hash
+    # switched off. One dark stretch, two reasons, two fates.
+    spine = WORSE_SPINE.replace('name="Shot B"', 'name="Shot B" enabled="0"')
+    timeline = cut(spine, "36s")
+    holes = coverage.black(timeline)
+    assert [(h.start, h.end) for h in holes] == [(Fraction(10), Fraction(16)), (Fraction(16), Fraction(26))]
+    assert coverage.why_black(holes[0], timeline) == 'gap "BLACK: a shot still to come"'
+    assert coverage.why_black(holes[1], timeline) == "switched off: Shot B"
+
+
+def test_a_black_clip_over_a_switched_off_shot_is_one_hole():
+    # The mask is the reason, whatever the primary storyline holds under it.
+    spine = MASKED_SPINE.replace('name="Shot B"', 'name="Shot B" enabled="0"')
+    timeline = cut(spine)
+    holes = coverage.black(timeline, coverage.items(timeline, is_black))
+    assert [(h.start, h.end) for h in holes] == [(Fraction(10), Fraction(30))]
+    assert coverage.why_black(holes[0], timeline).startswith("black clip:")

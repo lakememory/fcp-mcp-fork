@@ -138,7 +138,11 @@ class Span:
     enabled picture above it that does not fill the frame (titles, a clip
     scaled into a corner). Nothing in either is black. ``slug`` is the top
     clip when its file is black: it hides what is under it, so ``item`` is
-    None and the stretch is black because of it.
+    None and the stretch is black because of it. ``under`` is what the
+    primary storyline holds where a stretch is black: a switched-off
+    Item, a Gap, or None. A black stretch ends where its cause does, so a
+    named slot and the switched-off shot after it are two holes, each with
+    its own reason and its own fate.
     """
 
     start: Fraction
@@ -146,6 +150,7 @@ class Span:
     item: Optional[Item] = None
     over: tuple = ()
     slug: Optional[Item] = None
+    under: Any = None
 
     @property
     def duration(self) -> Fraction:
@@ -280,9 +285,14 @@ def picture(timeline: Any, found: Optional[list[Item]] = None) -> list[Span]:
     pool = found if found is not None else items(timeline)
     length = total(timeline, pool)
     seen = [i for i in pool if i.enabled and i.is_picture and i.end > i.start]
+    off = [i for i in pool if not i.enabled and i.kind == PICTURE and i.primary]
+    gaps = [(seconds(g.start), seconds(g.start) + seconds(g.duration), g)
+            for g in getattr(timeline, "gaps", None) or ()]
     edges = {Fraction(0), length}
-    for i in seen:
+    for i in seen + off:
         edges.update((max(Fraction(0), i.start), min(length, i.end)))
+    for g0, g1, _gap in gaps:
+        edges.update((max(Fraction(0), g0), min(length, g1)))
     cuts = sorted(e for e in edges if 0 <= e <= length)
 
     spans: list[Span] = []
@@ -298,11 +308,17 @@ def picture(timeline: Any, found: Optional[list[Item]] = None) -> list[Span]:
             (i for i in here if not i.covers and (floor is None or i.lane > floor)),
             key=lambda i: i.lane,
         ))
+        under = None
+        if top is None and slug is None and not over:
+            under = next((i for i in off if i.start <= a and i.end >= b), None)
+            if under is None:
+                under = next((g for g0, g1, g in gaps if g0 <= a and g1 >= b), None)
         last = spans[-1] if spans else None
-        if last is not None and last.item is top and last.slug is slug and last.over == over:
-            spans[-1] = Span(last.start, b, top, over, slug)
+        if (last is not None and last.item is top and last.slug is slug
+                and last.over == over and last.under is under):
+            spans[-1] = Span(last.start, b, top, over, slug, under)
         else:
-            spans.append(Span(a, b, top, over, slug))
+            spans.append(Span(a, b, top, over, slug, under))
     return spans
 
 
@@ -349,6 +365,11 @@ def why_black(span: Span, timeline: Any, found: Optional[list[Item]] = None) -> 
     """What the hole is, in the editor's own words where the document has them."""
     if span.slug is not None:
         return f"black clip: {span.slug.name}"
+    if isinstance(span.under, Item):
+        return f"switched off: {span.under.name}"
+    if span.under is not None:
+        name = (getattr(span.under, "name", "") or "").strip()
+        return f'gap "{name}"' if name and name != "Gap" else "an unnamed gap"
     pool = found if found is not None else items(timeline)
     off = [i.name for i in pool
            if not i.enabled and i.kind == PICTURE and i.primary

@@ -225,3 +225,16 @@ def test_a_black_movie_is_the_same_black_when_the_shot_before_it_changes():
     report = checks.run(cut(swapped), masked(), dark=is_black)
     black = [f for f in report.findings if f.code == "black"]
     assert len(black) == 1 and black[0].level == checks.INHERITED
+
+
+def test_a_gap_stays_inherited_when_the_shot_after_it_is_switched_off():
+    # V19 against V16: the orange slot was V16's; the chicken hash after it
+    # is new black. Before holes split at their cause, the two read as one
+    # grown hole and the line over the old slot failed with it.
+    spine = WORSE_SPINE.replace('name="Shot B"', 'name="Shot B" enabled="0"')
+    report = checks.run(cut(spine, "36s"), worse())
+    black = {(f.start, f.end): (f.level, f.text) for f in report.findings if f.code == "black"}
+    assert black[(Fraction(10), Fraction(16))][0] == checks.INHERITED
+    level, text = black[(Fraction(16), Fraction(26))]
+    assert level == checks.FAIL and "switched off: Shot B" in text
+    assert _codes(report, checks.INHERITED) == ["black", "vo-uncovered"]
