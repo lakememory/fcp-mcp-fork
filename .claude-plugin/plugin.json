@@ -1,7 +1,7 @@
 {
   "name": "fcpxml-mcp",
   "displayName": "Final Cut Pro (FCPXML)",
-  "version": "0.30.0",
+  "version": "0.30.0+fork.1",
   "description": "Drive Final Cut Pro from a conversation: read a timeline, run quality control, batch-edit, build rough cuts, manage markers, transcribe, and export to other NLEs. 17 grouped tools covering 109 operations over .fcpxml and .fcpxmld, with an operation journal and undo.",
   "author": {
     "name": "James Olusoga",

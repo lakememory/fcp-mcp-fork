@@ -1,8 +1,30 @@
 # Changelog
 
-## Unreleased (fork)
+## 0.30.0+fork.1 - 2026-11-06
 
-Fork of upstream 0.27.2 (`6733d29`), not an upstream release; see `FORK.md`.
+The fork's first numbered version. The scheme is `<upstream version>+fork.<n>`:
+the part before the `+` is the upstream release the branch stands on, the number
+after it counts the fork's own releases on that base, and merging a new upstream
+release resets it to 1. Tags carry the version with no `v` (upstream's publish
+workflow fires on `v*`). See `FORK.md`.
+
+### Added (perception)
+- **`see` group:** `shadow` (the cut as text: one row per change of picture or
+  narration line, with checks for black, narration over black, flash frames,
+  lost, doubled or reordered narration, and the differences from a base build)
+  and `contact_sheet` (frames from source files on the timeline clock). A clip
+  whose file is black where it plays counts as black. A hole is one per cause.
+
+### Fixed (perception)
+- The parser reads connected storylines written as `<spine lane="N">`,
+  `enabled="0"` and the picked child of an `<audition>`. Until now a film with
+  its narration in storylines read as 0 connected clips.
+- A file instant sits on the file's frame grid, so a freeze inside a file's
+  last frame has a frame.
+
+### Added (trace)
+
+Fork of upstream 0.27.2 (`6733d29`) at first, rebased onto 0.30.0; see `FORK.md`.
 
 ### Added
 - **Run tracing.** Every tool call is recorded as JSON lines under

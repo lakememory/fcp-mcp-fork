@@ -45,7 +45,7 @@ a proxy render plays at source speed; the contact sheets do read it.
 | | |
 |---|---|
 | Upstream commit | `6733d2939540db868510d11d8dd510ef9859ced1` (2026-10-24, "docs(README): current test count in the tree, drop the stale 62-handler figure") |
-| Upstream version | `0.27.2` (`pyproject.toml`; the fork does not bump it) |
+| Upstream version | `0.27.2` on `trace`; `perception` stands on `0.30.0` and carries the fork's own version, `0.30.0+fork.1` (`<upstream>+fork.<n>`; the count resets when a new upstream release is merged; tags carry the version with no `v`) |
 | Branch | `trace`, on top of upstream `main` |
 | Remotes | `upstream` only. No `origin`, nothing pushed. |
 
