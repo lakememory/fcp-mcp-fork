@@ -1,5 +1,6 @@
 """coverage.py: what is on screen and audible at each instant."""
 
+from dataclasses import replace
 from fractions import Fraction
 
 from fcpxml import coverage
@@ -120,6 +121,35 @@ def test_file_time_goes_through_the_time_map_of_a_retimed_clip():
     # Six seconds of screen time show four and a half seconds of source.
     assert slow.file_time(Fraction(3)) == Fraction(9, 4)
     assert slow.file_time(Fraction(6)) == Fraction(9, 2)
+
+
+def test_file_time_sits_on_the_files_frame_grid():
+    # A freeze written at 8.04s of a 24 fps file (V19's Hickey shot: the
+    # file is 193 frames, 8.0417s long). 8.04s is inside the last frame,
+    # which began at 8.0s; a seek to 8.04s finds no frame at all.
+    spine = (
+        '<asset-clip ref="pic" offset="0s" name="Freeze" start="0s" duration="20s">'
+        '<timeMap><timept time="0s" value="0s" interp="linear"/>'
+        '<timept time="193/12s" value="201/25s" interp="linear"/>'
+        '<timept time="20s" value="201/25s" interp="linear"/></timeMap></asset-clip>'
+    )
+    freeze = coverage.items(cut(spine, "20s"))[0]
+    assert freeze.frame == Fraction(1, 24)
+    assert freeze.file_time(Fraction(18)) == Fraction(8)
+    assert freeze.file_time(Fraction(20)) == Fraction(8)
+    # Mid-frame instants show the frame that began before them (the clip
+    # plays at half speed, so timeline 3/24s is file 3/48s: the second frame).
+    assert freeze.file_time(Fraction(1, 48)) == Fraction(0)
+    assert freeze.file_time(Fraction(3, 24)) == Fraction(1, 24)
+
+
+def test_without_a_declared_frame_rate_file_time_is_not_snapped():
+    shot = coverage.items(cut(
+        '<asset-clip ref="pic" offset="0s" name="Shot" start="0s" duration="2s"/>', "2s"
+    ))[0]
+    mid = replace(shot, clip_start=Fraction(1, 48))
+    assert mid.file_time(Fraction(0)) == Fraction(0)
+    assert replace(mid, frame=None).file_time(Fraction(0)) == Fraction(1, 48)
 
 
 def test_total_is_the_sequences_own_duration():

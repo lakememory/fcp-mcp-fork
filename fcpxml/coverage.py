@@ -83,6 +83,7 @@ class Item:
     covers: bool = False
     clip_start: Fraction = Fraction(0)  # the clip's own clock at its first frame
     origin: Fraction = Fraction(0)  # where the asset's clock begins
+    frame: Optional[Fraction] = None  # the file's frame duration, when declared
     time_map: tuple = ()
     markers: tuple = ()  # ((timeline seconds, text), ...)
     black: bool = False  # its file is black where the cut plays it
@@ -109,12 +110,19 @@ class Item:
         The clip's clock is the asset's clock (a camera file with 01:00:00:00
         timecode starts at 3600s, not 0), and a retimed clip reaches its
         source through its ``<timeMap>``. A still has one picture.
+
+        The answer sits on the file's frame grid: an instant inside a frame
+        shows the frame that began before it. A freeze written at 8.04s of
+        a 24 fps file is its last frame (8.0s), not a seek past every frame.
         """
         if self.still:
             return Fraction(0)
         local = self.clip_start + (Fraction(at) - self.start)
         source = _mapped(self.time_map, local) if self.time_map else local
-        return max(Fraction(0), source - self.origin)
+        into = max(Fraction(0), source - self.origin)
+        if self.frame:
+            into = (into // self.frame) * self.frame
+        return into
 
     @property
     def key(self) -> tuple:
@@ -231,6 +239,7 @@ def _item(obj: Any, *, connected: bool) -> Item:
         covers=kind == PICTURE and _covers(obj),
         clip_start=clip_start,
         origin=Fraction(media.origin) if media is not None else Fraction(0),
+        frame=getattr(media, "frame", None) if media is not None else None,
         time_map=tuple(getattr(obj, "time_map", ()) or ()),
         markers=tuple(marks),
     )

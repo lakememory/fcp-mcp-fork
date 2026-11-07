@@ -288,7 +288,12 @@ class FCPXMLParser:
             duration = parse_seconds(asset.get('duration'))
         except ValueError:
             return None
-        size = self.formats.get(asset.get('format', ''), {}).get('declaredSize')
+        fmt = self.formats.get(asset.get('format', ''), {})
+        size = fmt.get('declaredSize')
+        try:
+            frame = parse_seconds(fmt['frameDuration']) if 'frameDuration' in fmt else None
+        except ValueError:
+            frame = None
         src = asset.get('src', '').split('?', 1)[0].lower()
         still = asset.get('hasVideo', True) and (
             duration == 0 or src.endswith(_STILL_EXTENSIONS)
@@ -299,6 +304,7 @@ class FCPXMLParser:
         return MediaRef(
             origin=origin,
             duration=None if still else duration,
+            frame=frame if frame and not still else None,
             width=size[0] if size else None,
             height=size[1] if size else None,
             still=bool(still),

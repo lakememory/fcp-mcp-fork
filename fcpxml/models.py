@@ -632,10 +632,14 @@ class MediaRef:
     instant of it is its one picture.
 
     ``width``/``height`` are the format's declared size, None when the format
-    does not declare one.
+    does not declare one. ``frame`` is the format's frame duration in seconds,
+    None when it is not declared or the asset is a still: the file shows one
+    picture per frame, so an instant inside a frame shows the frame that
+    began before it.
     """
     origin: Fraction = Fraction(0)
     duration: Optional[Fraction] = None
+    frame: Optional[Fraction] = None
     width: Optional[int] = None
     height: Optional[int] = None
     still: bool = False

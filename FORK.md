@@ -10,7 +10,7 @@ the schema.
 
 Everything below this section describes the `trace` branch, which is unchanged.
 `perception` is a second branch: upstream `v0.30.0` (`dec1ff2`), the two trace commits
-cherry-picked onto it, then four commits that let a model judge a cut from what
+cherry-picked onto it, then five commits that let a model judge a cut from what
 plays rather than from clip counts. Local only, nothing pushed.
 
 | Commit | What | Upstreamable |
@@ -19,6 +19,7 @@ plays rather than from clip counts. Local only, nothing pushed.
 | `feat(see): ...` | `fcpxml/coverage.py`, `checks.py`, `shadow.py`, `sheet.py`, `tools/see.py`: the `see` group (`shadow`, `contact_sheet`). Also `Timeline.gaps`, `time_map` on clips, and a sound file with no `hasVideo` attribute is no longer picture. | Yes, minus the `fcpxml/trace.py` and count lines. |
 | `fix(checks): ...` | Inheritance of a hole from the base build. | With the one above. |
 | `fix(see): a clip whose file is black is black` | `fcpxml/blackness.py` looks at three frames of each enabled full-frame clip's file (one for a shot that is not black; cached). A black movie laid over the cut used to count as picture, so V18a measured 15.2 s of black with 166.8 s on screen. Also: more than three narration lines over one black are one finding. Found by the first live test. | With the `see` commit. |
+| `fix(see): a file instant sits on the file's frame grid` | `MediaRef.frame` (the asset format's `frameDuration`) and `Item.file_time` floors to it. A freeze written at 8.04 s of a 193-frame 24 fps file is inside its last frame, and a seek there found nothing: the contact sheet read "NO FRAME" on V19's Hickey freeze and the agent had to guess. Found by the second live test. | Yes, with the parser change. |
 
 Upstream-owned files touched: `fcpxml/parser.py`, `fcpxml/models.py`,
 `fcpxml/filtergraph.py`, `fcpxml/timeline_app.py`, `tools/__init__.py` (two lines),
